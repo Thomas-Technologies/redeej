@@ -5,12 +5,12 @@ noise_reduction: default
 slider_mapping:
   0:
   - firefox
-  1:
-  - spotify
+  1: []
   2:
   - zen-bin
-  - ""
   3:
   - chromium
   4:
   - chrome
+  - kitty
+  - spotify
