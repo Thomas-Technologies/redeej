@@ -4,13 +4,14 @@ invert_sliders: false
 noise_reduction: default
 slider_mapping:
   0:
-  - firefox
-  1: []
+  - kitty
+  1:
+  - wine64-preloader
   2:
   - zen-bin
   3:
   - chromium
   4:
   - chrome
-  - kitty
+  - firefox
   - spotify

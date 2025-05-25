@@ -254,6 +254,9 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 
 				// join the names into a single string
 				currentWindowProcessName := strings.Join(currentWindowProcessNames, ", ")
+				if currentWindowProcessName == "" {
+					return
+				}
 
 				util.AddWindowToSlider(currentWindowProcessName, buttonIdx)
 
