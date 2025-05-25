@@ -31,7 +31,9 @@ type SerialIO struct {
 	conn        io.ReadWriteCloser
 
 	lastKnownNumSliders        int
+	lastKnownNumButtons        int
 	currentSliderPercentValues []float32
+	currentButtonStates        []int
 
 	sliderMoveConsumers []chan SliderMoveEvent
 
@@ -129,7 +131,7 @@ func (sio *SerialIO) Stop() {
 // SubscribeToSliderMoveEvents returns an unbuffered channel that receives
 // a sliderMoveEvent struct every time a slider moves
 func (sio *SerialIO) SubscribeToSliderMoveEvents() chan SliderMoveEvent {
-	ch := make(chan SliderMoveEvent, 32) // Add buffer
+	ch := make(chan SliderMoveEvent, 2) // Add buffer
 	sio.sliderMoveConsumers = append(sio.sliderMoveConsumers, ch)
 	return ch
 }
@@ -192,12 +194,74 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 	}
 
 	line = strings.TrimSuffix(line, "\r\n")
-	splitLine := strings.Split(line, "|")
+
+	// split on double pipe (||), this separates the sliders and the buttons
+	splittedValues := strings.Split(line, "||")
+
+	splitLine := strings.Split(splittedValues[0], "|")
 	numSliders := len(splitLine)
 
 	sio.updateSliderCount(logger, numSliders)
 	moveEvents := sio.processSliderValues(logger, splitLine)
 	sio.deliverMoveEvents(moveEvents)
+
+	// Split the button values
+	splitLineButtons := strings.Split(splittedValues[1], "|")
+	numButtons := len(splitLine)
+
+	if numButtons != sio.lastKnownNumButtons {
+		logger.Infow("Detected buttons", "amount", numButtons)
+		sio.lastKnownNumButtons = numButtons
+		sio.currentButtonStates = make([]int, numButtons)
+
+		// reset everything to be an impossible value to force the slider move event later
+		for idx := range sio.currentButtonStates {
+			sio.currentButtonStates[idx] = -1.0
+		}
+	}
+
+	// for each button
+	for buttonIdx, stringValue := range splitLineButtons {
+
+		// Convert the button state string into an integer
+		number, _ := strconv.Atoi(stringValue)
+
+		// check if the state is possible (0 or 1)
+		if number != 0 && number != 1 {
+			sio.logger.Debugw("Got malformed line from serial for button, ignoring", "line", line, ", number", number)
+			return
+		}
+
+		// check if state changed
+		if sio.currentButtonStates[buttonIdx] != number {
+
+			// update the saved value
+			sio.currentButtonStates[buttonIdx] = number
+
+			// if new state is 0 (button pressed), run press action
+			if number == 0 {
+				// get the current active window
+
+				currentWindowProcessNames, _ := util.GetCurrentWindowProcessNames()
+
+				// we could have gotten non-lowercase names from that, so let's ensure we return ones that are lowercase
+				for targetIdx, target := range currentWindowProcessNames {
+					currentWindowProcessNames[targetIdx] = strings.ToLower(target)
+				}
+
+				// // remove dupes
+				// currentWindowProcessNames = funk.UniqString(currentWindowProcessNames)
+
+				// join the names into a single string
+				currentWindowProcessName := strings.Join(currentWindowProcessNames, ", ")
+
+				util.AddWindowToSlider(currentWindowProcessName, buttonIdx)
+
+				fmt.Printf("Active window title: %s\n", currentWindowProcessNames)
+			}
+		}
+
+	}
 }
 
 func (sio *SerialIO) updateSliderCount(logger *zap.SugaredLogger, numSliders int) {
@@ -254,11 +318,14 @@ func (sio *SerialIO) calculateNormalizedValue(rawValue int) float32 {
 
 func (sio *SerialIO) deliverMoveEvents(moveEvents []SliderMoveEvent) {
 	if len(moveEvents) > 0 {
-		for _, consumer := range sio.sliderMoveConsumers {
-			for _, moveEvent := range moveEvents {
-				consumer <- moveEvent
-			}
+		for _, moveEvent := range moveEvents {
+			sio.sliderMoveConsumers[0] <- moveEvent
 		}
+		// for _, consumer := range sio.sliderMoveConsumers {
+		// 	for _, moveEvent := range moveEvents {
+		// 		consumer <- moveEvent
+		// 	}
+		// }
 	}
 }
 

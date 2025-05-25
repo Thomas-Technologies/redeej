@@ -6,10 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"reflect"
 	"runtime"
+	"slices"
 	"syscall"
 
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v2"
 )
 
 // EnsureDirExists creates the given directory path if it doesn't already exist
@@ -127,4 +130,111 @@ func SignificantlyDifferent(old float32, new float32, noiseReductionLevel string
 // a helper to make sure volume snaps correctly to 0 and 100, where appropriate
 func almostEquals(a float32, b float32) bool {
 	return math.Abs(float64(a-b)) < 0.000001
+}
+
+// Handles the logic for adding the window to the slider in the config
+func AddWindowToSlider(windowTitle string, index int) {
+	// Read the YAML file
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		fmt.Errorf("error reading file: %v", err)
+	}
+
+	// Unmarshal the YAML data into a generic map
+	var genericData map[string]interface{}
+	err = yaml.Unmarshal(data, &genericData)
+	if err != nil {
+		fmt.Errorf("error unmarshaling file: %v", err)
+	}
+
+	// Extract the slider_mapping section
+	var sliderMapping map[int]interface{}
+	if sm, exists := genericData["slider_mapping"]; exists {
+		// Convert to the expected type
+		smBytes, err := yaml.Marshal(sm)
+		if err != nil {
+			fmt.Errorf("error marshaling slider_mapping: %v", err)
+		}
+		err = yaml.Unmarshal(smBytes, &sliderMapping)
+		if err != nil {
+			fmt.Errorf("error unmarshaling slider_mapping: %v", err)
+		}
+	} else {
+		sliderMapping = make(map[int]interface{})
+	}
+
+	for index, val := range sliderMapping {
+		valArr := makeStringSlice(val)
+		if slices.Contains(valArr, windowTitle) {
+			valArr = remove(valArr, windowTitle)
+		}
+		sliderMapping[index] = valArr
+	}
+
+	// Check the value type and append windowTitle accordingly
+	if val, exists := sliderMapping[index]; exists {
+		switch v := val.(type) {
+		case string:
+			// Convert string to list of strings
+			sliderMapping[index] = []string{v, windowTitle}
+		case []any:
+			// Convert interface{} slice to string slice and append the new value
+			newVal := make([]string, len(v))
+			for i, elem := range v {
+				newVal[i] = fmt.Sprint(elem)
+			}
+			sliderMapping[index] = append(newVal, windowTitle)
+		case []string:
+			// If it's already a list of strings, simply append the new value
+			sliderMapping[index] = append(v, windowTitle)
+		default:
+			fmt.Println(fmt.Errorf("unexpected type for slider_mapping: %v", reflect.TypeOf(val)))
+		}
+	} else {
+		sliderMapping[index] = []string{windowTitle}
+	}
+
+	// Update the genericData map with the modified slider_mapping
+	genericData["slider_mapping"] = sliderMapping
+
+	// Marshal the modified genericData back to YAML
+	modifiedData, err := yaml.Marshal(&genericData)
+	if err != nil {
+		fmt.Println(fmt.Errorf("error marshaling modified data: %v", err))
+	}
+
+	// Write the modified YAML back to the file
+	err = os.WriteFile("config.yaml", modifiedData, 0644)
+	if err != nil {
+		fmt.Println(fmt.Errorf("error writing file: %v", err))
+	}
+
+	// Print the modified configuration
+	fmt.Println("Modified configuration:")
+	fmt.Println(string(modifiedData))
+}
+
+func makeStringSlice(s any) []string {
+	// Convert s to a slice of strings
+	vals, ok := s.([]any)
+	if !ok {
+		return nil
+	}
+
+	var newVals []string
+	for _, v := range vals {
+		newVals = append(newVals, fmt.Sprint(v))
+	}
+	return newVals
+}
+
+func remove(s []string, str string) []string {
+	// Convert s to a slice of strings
+	var newVals []string
+	for _, v := range s {
+		if v != str {
+			newVals = append(newVals, v)
+		}
+	}
+	return newVals
 }

@@ -136,14 +136,45 @@ func (m *sessionMap) setupOnConfigReload() {
 	}()
 }
 
+// func (m *sessionMap) setupOnSliderMove() {
+// 	sliderEventsChannel := m.deej.serial.SubscribeToSliderMoveEvents()
+//
+// 	go func() {
+// 		for {
+// 			select {
+// 			case event := <-sliderEventsChannel:
+// 				m.handleSliderMoveEvent(event)
+// 			}
+// 		}
+// 	}()
+// }
+
 func (m *sessionMap) setupOnSliderMove() {
 	sliderEventsChannel := m.deej.serial.SubscribeToSliderMoveEvents()
 
 	go func() {
 		for {
-			select {
-			case event := <-sliderEventsChannel:
-				m.handleSliderMoveEvent(event)
+			// Block until at least one event is received
+			event := <-sliderEventsChannel
+
+			// Map to keep track of the most recent event per slider
+			events := map[int]SliderMoveEvent{event.SliderID: event}
+
+			// Drain the channel to get the latest event
+			for {
+				select {
+				case newEvent := <-sliderEventsChannel:
+					events[newEvent.SliderID] = newEvent
+				default:
+					// Channel is empty
+					goto Process
+				}
+			}
+
+		Process:
+			// Process the most recent event for all sliders
+			for _, ev := range events {
+				m.handleSliderMoveEvent(ev)
 			}
 		}
 	}()
